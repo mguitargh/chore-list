@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chore List</title>
+<meta name="description" content="Household chore tracker: when each chore was last done and when it is next due.">
+<style>
+:root {
+  --bg: #f5f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e2e2dd;
+  --green: #d8f1de; --green-bar: #2e9b4f; --green-text: #14532d;
+  --yellow: #fdf0c4; --yellow-bar: #d4a017; --yellow-text: #6b4e00;
+  --red: #fbd9d6; --red-bar: #d6342b; --red-text: #7a1410;
+  --accent: #2f5fd0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151517; --card: #212125; --text: #f2f2f4; --muted: #9b9ba3; --line: #34343a;
+    --green: #17301f; --green-text: #a6e3b6;
+    --yellow: #3a3010; --yellow-text: #f2d777;
+    --red: #3d1b19; --red-text: #f5aaa5;
+    --accent: #7ea2ff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 8px 14px; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.small { padding: 5px 10px; font-size: 14px; }
+button.ghost { background: transparent; }
+.summary { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.pill { padding: 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+.pill.red { background: var(--red); color: var(--red-text); }
+.pill.yellow { background: var(--yellow); color: var(--yellow-text); }
+.pill.green { background: var(--green); color: var(--green-text); }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+li.chore { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; padding: 12px 14px; border-radius: 12px; border-left: 8px solid; }
+li.chore.green { background: var(--green); border-color: var(--green-bar); color: var(--green-text); }
+li.chore.yellow { background: var(--yellow); border-color: var(--yellow-bar); color: var(--yellow-text); }
+li.chore.red { background: var(--red); border-color: var(--red-bar); color: var(--red-text); }
+.name { font-weight: 650; font-size: 17px; }
+.meta { font-size: 14px; opacity: 0.85; margin-top: 2px; }
+.status { font-weight: 700; }
+.actions { display: flex; gap: 6px; align-items: center; }
+.actions button { background: rgba(255,255,255,0.55); color: #1d1d1f; border-color: rgba(0,0,0,0.12); }
+@media (prefers-color-scheme: dark) { .actions button { background: rgba(0,0,0,0.3); color: #f2f2f4; border-color: rgba(255,255,255,0.15); } }
+.empty { text-align: center; color: var(--muted); padding: 40px 0; }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text); width: min(420px, calc(100vw - 32px)); padding: 20px; }
+dialog::backdrop { background: rgba(0,0,0,0.45); }
+dialog h2 { margin: 0 0 12px; font-size: 20px; }
+label { display: block; font-size: 14px; color: var(--muted); margin: 10px 0 4px; }
+input { width: 100%; font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.row .spacer { flex: 1; }
+footer { margin-top: 28px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; }
+.legend { margin-top: 18px; font-size: 13px; color: var(--muted); }
+@media (max-width: 480px) { li.chore { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Chore List</h1>
+    <button class="primary" id="addBtn">+ Add chore</button>
+  </header>
+  <div class="summary" id="summary"></div>
+  <ul id="list"></ul>
+  <p class="legend">Green: recently done. Yellow: due today or soon. Red: past due. Sorted most urgent first.</p>
+  <footer>
+    <span>Saved in this browser only.</span>
+    <button class="small ghost" id="exportBtn">Export backup</button>
+    <button class="small ghost" id="importBtn">Import backup</button>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </footer>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="form">
+    <h2 id="dlgTitle">Add chore</h2>
+    <label for="fName">Chore</label>
+    <input id="fName" required maxlength="80">
+    <label for="fEvery">Repeat every (days)</label>
+    <input id="fEvery" type="number" min="1" max="3650" value="7" required>
+    <label for="fLast">Last done (leave blank if never)</label>
+    <input id="fLast" type="date">
+    <div class="row">
+      <button type="button" class="small" id="delBtn" style="color:#d6342b">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" id="cancelBtn">Cancel</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const KEY = 'choreList.v1';
+const DAY = 86400000;
+
+function iso(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function dayNum(s) { const [y, m, d] = s.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / DAY); }
+function today() { return dayNum(iso(new Date())); }
+function fromNum(n) { return new Date(n * DAY); }
+function fmt(n) { return fromNum(n).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
+const seed = [
+  ['Hoover floors', 7], ['Mop kitchen and bathroom floors', 14], ['Clean bathroom', 7],
+  ['Wipe kitchen surfaces and hob', 3], ['Change bed sheets', 14], ['Take out bins and recycling', 7],
+  ['Wash and dry laundry', 7], ['Clean fridge', 30], ['Dust all rooms', 14], ['Clean windows', 60]
+].map(([name, every]) => ({ id: uid(), name, every, last: '' }));
+
+let chores = load();
+function load() {
+  try { const r = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(r)) return r; } catch (e) {}
+  return seed;
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(chores)); } catch (e) {} }
+
+function status(c) {
+  const t = today();
+  const due = c.last ? dayNum(c.last) + c.every : t;
+  const left = due - t;
+  const window_ = c.every <= 1 ? 0 : Math.max(1, Math.round(c.every * 0.25));
+  const state = left < 0 ? 'red' : left <= window_ ? 'yellow' : 'green';
+  let text;
+  if (left < 0) text = 'Overdue by ' + (-left) + (left === -1 ? ' day' : ' days');
+  else if (left === 0) text = c.last ? 'Due today' : 'Not done yet, due today';
+  else text = 'Due in ' + left + (left === 1 ? ' day' : ' days');
+  return { due, left, state, text };
+}
+
+function render() {
+  const items = chores.map(c => ({ c, s: status(c) })).sort((a, b) => a.s.left - b.s.left || a.c.name.localeCompare(b.c.name));
+  const counts = { red: 0, yellow: 0, green: 0 };
+  items.forEach(i => counts[i.s.state]++);
+  const sum = document.getElementById('summary');
+  sum.innerHTML = '';
+  [['red', 'overdue'], ['yellow', 'due soon'], ['green', 'up to date']].forEach(([k, label]) => {
+    const p = document.createElement('span'); p.className = 'pill ' + k; p.textContent = counts[k] + ' ' + label; sum.appendChild(p);
+  });
+  const ul = document.getElementById('list');
+  ul.innerHTML = '';
+  if (!items.length) { ul.innerHTML = '<li class="empty">No chores yet. Add one to get started.</li>'; return; }
+  items.forEach(({ c, s }) => {
+    const li = document.createElement('li'); li.className = 'chore ' + s.state;
+    const info = document.createElement('div');
+    const n = document.createElement('div'); n.className = 'name'; n.textContent = c.name;
+    const m = document.createElement('div'); m.className = 'meta';
+    const st = document.createElement('span'); st.className = 'status'; st.textContent = s.text;
+    m.append(st, ' · Last done: ' + (c.last ? fmt(dayNum(c.last)) : 'never') + ' · Next due: ' + fmt(s.due) + ' · Every ' + c.every + (c.every === 1 ? ' day' : ' days'));
+    info.append(n, m);
+    const act = document.createElement('div'); act.className = 'actions';
+    const done = document.createElement('button'); done.textContent = 'Done today'; done.onclick = () => { c.last = iso(new Date()); save(); render(); };
+    const edit = document.createElement('button'); edit.textContent = 'Edit'; edit.onclick = () => openDlg(c);
+    act.append(done, edit);
+    li.append(info, act); ul.appendChild(li);
+  });
+}
+
+const dlg = document.getElementById('dlg');
+let editing = null;
+function openDlg(c) {
+  editing = c || null;
+  document.getElementById('dlgTitle').textContent = c ? 'Edit chore' : 'Add chore';
+  document.getElementById('fName').value = c ? c.name : '';
+  document.getElementById('fEvery').value = c ? c.every : 7;
+  document.getElementById('fLast').value = c ? c.last : '';
+  document.getElementById('delBtn').style.display = c ? '' : 'none';
+  dlg.showModal();
+  document.getElementById('fName').focus();
+}
+document.getElementById('addBtn').onclick = () => openDlg(null);
+document.getElementById('cancelBtn').onclick = () => dlg.close();
+document.getElementById('form').addEventListener('submit', () => {
+  const name = document.getElementById('fName').value.trim();
+  const every = Math.max(1, parseInt(document.getElementById('fEvery').value, 10) || 7);
+  const last = document.getElementById('fLast').value;
+  if (!name) return;
+  if (editing) Object.assign(editing, { name, every, last });
+  else chores.push({ id: uid(), name, every, last });
+  save(); render();
+});
+document.getElementById('delBtn').onclick = () => {
+  if (editing && confirm('Delete "' + editing.name + '"?')) { chores = chores.filter(c => c !== editing); save(); render(); dlg.close(); }
+};
+
+document.getElementById('exportBtn').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(chores, null, 2)], { type: 'application/json' }));
+  a.download = 'chore-list-' + iso(new Date()) + '.json'; a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById('importBtn').onclick = () => document.getElementById('importFile').click();
+document.getElementById('importFile').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => {
+    const r = JSON.parse(t);
+    if (!Array.isArray(r) || !r.every(c => c && typeof c.name === 'string' && Number(c.every) >= 1)) throw 0;
+    chores = r.map(c => ({ id: c.id || uid(), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '' }));
+    save(); render();
+  }).catch(() => alert('That file is not a valid chore backup.'));
+  e.target.value = '';
+};
+
+render();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+</script>
+</body>
+</html>
