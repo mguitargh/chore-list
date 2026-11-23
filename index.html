@@ -67,7 +67,8 @@ footer { margin-top: 28px; display: flex; gap: 8px; flex-wrap: wrap; align-items
     <h1>Chore List</h1>
     <button class="primary" id="addBtn">+ Add chore</button>
   </header>
-  <div class="summary" id="summary"></div>
+  <div class="muted" id="sync" style="color:var(--muted);font-size:13px;margin:-6px 0 12px"></div>
+<div class="summary" id="summary"></div>
   <ul id="list"></ul>
   <p class="legend">Green: recently done. Yellow: due today or soon. Red: past due. Sorted most urgent first.</p>
   <footer>
@@ -116,12 +117,67 @@ const seed = [
   ['Wash and dry laundry', 7], ['Clean fridge', 30], ['Dust all rooms', 14], ['Clean windows', 60]
 ].map(([name, every]) => ({ id: uid(), name, every, last: '' }));
 
+// ---- AnnoyMe link (2026-11-23) ----------------------------------------------------------------------------------
+// The AnnoyMe app opens this page with a private key in the link's #fragment (never sent to any server). With it the
+// list is kept in AnnoyMe's database so the phone can nudge about overdue chores. Without it the page works exactly as
+// before, on this browser only. Nudges only: nothing here locks or blocks anything.
+const SB = 'https://tcrnoejnhlkazwudxfpe.supabase.co/rest/v1/rpc/';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjcm5vZWpuaGxrYXp3dWR4ZnBlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxODA1NTcsImV4cCI6MjEwMTc1NjU1N30.1TH2wo-ibskZQgbvq_4kjMC_n0kfIyAxNrnQRKrQrXM';
+const SECRET_KEY = 'choreList.secret', SEEN_KEY = 'choreList.seen';
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+(function takeKey() {
+  const m = /[#&]k=([0-9a-f]{32,})/.exec(location.hash);
+  if (m) { store.set(SECRET_KEY, m[1]); store.set(SEEN_KEY, ''); history.replaceState(null, '', location.pathname + location.search); }
+})();
+let pushTimer = null, syncMsg = '';
+function showSync() {
+  document.getElementById('sync').textContent = store.get(SECRET_KEY)
+    ? (syncMsg || 'Linked to AnnoyMe: overdue chores will nudge you.')
+    : 'Not linked to AnnoyMe. Open this page from the chore list link in the AnnoyMe app.';
+}
+async function rpc(name, body) {
+  const r = await fetch(SB + name, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function cleanChores(r) {
+  return Array.isArray(r) ? r.filter(c => c && typeof c.name === 'string' && Number(c.every) >= 1).map(c => ({ id: String(c.id || uid()), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '' })) : null;
+}
+async function pullNow() {
+  const k = store.get(SECRET_KEY); if (!k) { showSync(); return; }
+  try {
+    const rows = await rpc('chore_list_pull', { p_secret: k });
+    if (!rows.length) { syncMsg = 'The link key was not recognised. Open the link from the AnnoyMe app again.'; showSync(); return; }
+    const { chores: remote, updated_at } = rows[0];
+    const seen = store.get(SEEN_KEY);
+    const list = cleanChores(remote) || [];
+    if (!seen && !list.length) { await pushNow(); return; }          // first link, server empty: upload this browser's list
+    if (!seen || updated_at !== seen) {                             // server has newer data: it wins
+      chores = list; try { localStorage.setItem(KEY, JSON.stringify(chores)); } catch (e) {}
+      store.set(SEEN_KEY, updated_at); render();
+    }
+    syncMsg = ''; showSync();
+  } catch (e) { syncMsg = 'Could not reach AnnoyMe just now (' + e.message + '). Changes are kept here and sent later.'; showSync(); }
+}
+async function pushNow() {
+  const k = store.get(SECRET_KEY); if (!k) return;
+  try {
+    const rows = await rpc('chore_list_push', { p_secret: k, p_chores: chores, p_seen: store.get(SEEN_KEY) || null });
+    if (rows[0] && rows[0].ok) { store.set(SEEN_KEY, rows[0].updated_at); syncMsg = ''; showSync(); }
+    else await pullNow();                                           // someone else changed it: take theirs
+  } catch (e) { syncMsg = 'Could not reach AnnoyMe just now (' + e.message + '). Changes are kept here and sent later.'; showSync(); }
+}
+function schedulePush() { if (!store.get(SECRET_KEY)) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 600); }
+
 let chores = load();
 function load() {
   try { const r = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(r)) return r; } catch (e) {}
   return seed;
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(chores)); } catch (e) {} }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(chores)); } catch (e) {} schedulePush(); }
 
 function status(c) {
   const t = today();
@@ -208,8 +264,8 @@ document.getElementById('importFile').onchange = e => {
   e.target.value = '';
 };
 
-render();
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+render(); showSync(); pullNow();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); pullNow(); } });
 </script>
 </body>
 </html>
