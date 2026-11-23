@@ -57,6 +57,28 @@ input { width: 100%; font: inherit; padding: 9px 10px; border-radius: 8px; borde
 .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
 .row .spacer { flex: 1; }
 footer { margin-top: 28px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; }
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; }
+.tabs button { flex: 1; border: 0; background: transparent; padding: 8px; font-weight: 600; color: var(--muted); }
+.tabs button.on { background: var(--accent); color: #fff; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip { padding: 5px 11px; border-radius: 999px; font-size: 14px; background: var(--card); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.chip.all { font-weight: 650; }
+.calhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.calhead h2 { margin: 0; font-size: 20px; }
+.calhead button { width: 40px; font-size: 18px; line-height: 1; }
+.calsub { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 10px; min-height: 18px; }
+.grid7 { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px 4px; justify-items: center; }
+.grid7 .dow { font-size: 12px; color: var(--muted); }
+.day { width: min(44px, 100%); aspect-ratio: 1; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; border: 1.5px solid var(--line); background: color-mix(in srgb, var(--green-bar) calc(var(--f, 0) * 100%), transparent); color: var(--text); }
+.day.hi { color: #fff; border-color: transparent; }
+.day.today { box-shadow: 0 0 0 2px var(--accent); }
+.day.sel { outline: 2px solid var(--text); outline-offset: 2px; }
+.day.future { opacity: 0.35; }
+.daydetail { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.daydetail h3 { margin: 0 0 8px; font-size: 16px; }
+.daydetail label { display: flex; align-items: center; gap: 10px; margin: 0; padding: 6px 0; font-size: 16px; color: var(--text); }
+.daydetail input { width: 20px; height: 20px; accent-color: var(--green-bar); }
 .legend { margin-top: 18px; font-size: 13px; color: var(--muted); }
 @media (max-width: 480px) { li.chore { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
 </style>
@@ -68,9 +90,21 @@ footer { margin-top: 28px; display: flex; gap: 8px; flex-wrap: wrap; align-items
     <button class="primary" id="addBtn">+ Add chore</button>
   </header>
   <div class="muted" id="sync" style="color:var(--muted);font-size:13px;margin:-6px 0 12px"></div>
-<div class="summary" id="summary"></div>
+<div class="tabs"><button id="tabList" class="on">Chores</button><button id="tabCal">Calendar</button></div>
+  <div id="viewList">
+  <div class="summary" id="summary"></div>
   <ul id="list"></ul>
   <p class="legend">Green: recently done. Yellow: due today or soon. Red: past due. Sorted most urgent first.</p>
+  </div>
+  <div id="viewCal" hidden>
+    <div class="chips" id="chips"></div>
+    <div class="calhead"><button id="prevM" aria-label="Previous month">‹</button><h2 id="monthTitle"></h2><button id="nextM" aria-label="Next month">›</button></div>
+    <div class="calsub" id="calSub"></div>
+    <div class="grid7" id="dows"></div>
+    <div class="grid7" id="days"></div>
+    <div class="daydetail" id="dayDetail" hidden></div>
+    <p class="legend">Each circle is a day. Green means done: one chore shows solid, several show darker the more of them were done. Tap a day to see or change what was done.</p>
+  </div>
   <footer>
     <span>Saved in this browser only.</span>
     <button class="small ghost" id="exportBtn">Export backup</button>
@@ -109,6 +143,14 @@ function dayNum(s) { const [y, m, d] = s.split('-').map(Number); return Math.rou
 function today() { return dayNum(iso(new Date())); }
 function fromNum(n) { return new Date(n * DAY); }
 function fmt(n) { return fromNum(n).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+function normLog(a) { return Array.isArray(a) ? [...new Set(a.filter(x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)))].sort().slice(-200) : []; }
+function logPart(c) { const l = normLog(c.log); return l.length ? { log: l } : {}; }
+function setDone(c, day, on) {
+  const l = new Set(c.log || []); if (on) l.add(day); else l.delete(day);
+  c.log = [...l].sort().slice(-200);
+  const mx = c.log.length ? c.log[c.log.length - 1] : '';
+  if (on) { if (day > c.last) c.last = day; } else if (c.last === day || c.last > mx) c.last = mx;
+}
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 const seed = [
@@ -144,7 +186,7 @@ async function rpc(name, body) {
   return r.json();
 }
 function cleanChores(r) {
-  return Array.isArray(r) ? r.filter(c => c && typeof c.name === 'string' && Number(c.every) >= 1).map(c => ({ id: String(c.id || uid()), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '', ...(c.src ? { src: String(c.src) } : {}) })) : null;
+  return Array.isArray(r) ? r.filter(c => c && typeof c.name === 'string' && Number(c.every) >= 1).map(c => ({ id: String(c.id || uid()), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '', ...(c.src ? { src: String(c.src) } : {}), ...logPart(c) })) : null;
 }
 async function pullNow() {
   const k = store.get(SECRET_KEY); if (!k) { showSync(); return; }
@@ -214,7 +256,7 @@ function render() {
     m.append(st, ' · Last done: ' + (c.last ? fmt(dayNum(c.last)) : 'never') + ' · Next due: ' + fmt(s.due) + ' · Every ' + c.every + (c.every === 1 ? ' day' : ' days'));
     info.append(n, m);
     const act = document.createElement('div'); act.className = 'actions';
-    const done = document.createElement('button'); done.textContent = 'Done today'; done.onclick = () => { c.last = iso(new Date()); save(); render(); };
+    const done = document.createElement('button'); done.textContent = 'Done today'; done.onclick = () => { setDone(c, iso(new Date()), true); save(); render(); };
     const edit = document.createElement('button'); edit.textContent = 'Edit'; edit.onclick = () => openDlg(c);
     act.append(done, edit);
     li.append(info, act); ul.appendChild(li);
@@ -240,8 +282,10 @@ document.getElementById('form').addEventListener('submit', () => {
   const every = Math.max(1, parseInt(document.getElementById('fEvery').value, 10) || 7);
   const last = document.getElementById('fLast').value;
   if (!name) return;
-  if (editing) Object.assign(editing, { name, every, last });
-  else chores.push({ id: uid(), name, every, last });
+  let c = editing;
+  if (c) Object.assign(c, { name, every, last });
+  else { c = { id: uid(), name, every, last }; chores.push(c); }
+  if (last) setDone(c, last, true);
   save(); render();
 });
 document.getElementById('delBtn').onclick = () => {
@@ -259,11 +303,67 @@ document.getElementById('importFile').onchange = e => {
   f.text().then(t => {
     const r = JSON.parse(t);
     if (!Array.isArray(r) || !r.every(c => c && typeof c.name === 'string' && Number(c.every) >= 1)) throw 0;
-    chores = r.map(c => ({ id: c.id || uid(), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '', ...(c.src ? { src: String(c.src) } : {}) }));
+    chores = r.map(c => ({ id: c.id || uid(), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '', ...(c.src ? { src: String(c.src) } : {}), ...logPart(c) }));
     save(); render();
   }).catch(() => alert('That file is not a valid chore backup.'));
   e.target.value = '';
 };
+
+// ---- Calendar ---------------------------------------------------------------------------------------------------
+const SEL_KEY = 'choreList.calSel', VIEW_KEY = 'choreList.view';
+let calSel = new Set(); try { JSON.parse(store.get(SEL_KEY) || '[]').forEach(x => calSel.add(x)); } catch (e) {}
+let calY = new Date().getFullYear(), calM = new Date().getMonth(), calDay = '';
+function shownChores() { const l = chores.filter(c => calSel.has(c.id)); return l.length ? l : chores; }
+function renderCal() {
+  calSel = new Set([...calSel].filter(id => chores.some(c => c.id === id)));
+  const chips = document.getElementById('chips'); chips.innerHTML = '';
+  const mk = (label, on, cls, fn) => { const b = document.createElement('button'); b.className = 'chip ' + cls + (on ? ' on' : ''); b.textContent = label; b.onclick = fn; chips.appendChild(b); };
+  const persist = () => { store.set(SEL_KEY, JSON.stringify([...calSel])); renderCal(); };
+  mk('All chores', calSel.size === 0, 'all', () => { calSel = new Set(); persist(); });
+  [...chores].sort((a, b) => a.name.localeCompare(b.name)).forEach(c => mk(c.name, calSel.has(c.id), '', () => {
+    if (calSel.has(c.id)) calSel.delete(c.id); else calSel.add(c.id);
+    persist();
+  }));
+  const shown = shownChores(), multi = shown.length > 1;
+  document.getElementById('monthTitle').textContent = new Date(Date.UTC(calY, calM, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const dows = document.getElementById('dows'); dows.innerHTML = '';
+  ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(d => { const e = document.createElement('div'); e.className = 'dow'; e.textContent = d; dows.appendChild(e); });
+  const first = Date.UTC(calY, calM, 1), lead = (new Date(first).getUTCDay() + 6) % 7, dim = new Date(Date.UTC(calY, calM + 1, 0)).getUTCDate();
+  const doneBy = {}; shown.forEach(c => (c.log || []).forEach(d => { (doneBy[d] = doneBy[d] || []).push(c); }));
+  const days = document.getElementById('days'); days.innerHTML = '';
+  for (let i = 0; i < lead; i++) days.appendChild(document.createElement('div'));
+  const td = iso(new Date()); let total = 0, active = 0;
+  for (let n = 1; n <= dim; n++) {
+    const key = new Date(Date.UTC(calY, calM, n)).toISOString().slice(0, 10), cnt = (doneBy[key] || []).length;
+    total += cnt; if (cnt) active++;
+    const f = cnt ? (multi ? 0.25 + 0.75 * cnt / shown.length : 1) : 0;
+    const b = document.createElement('button'); b.className = 'day' + (f > 0.5 ? ' hi' : '') + (key === td ? ' today' : '') + (key === calDay ? ' sel' : '') + (key > td ? ' future' : '');
+    b.style.setProperty('--f', f); b.textContent = n; b.title = cnt ? cnt + ' done' : 'Nothing logged';
+    b.onclick = () => { calDay = calDay === key ? '' : key; renderCal(); };
+    days.appendChild(b);
+  }
+  document.getElementById('calSub').textContent = total ? total + (total === 1 ? ' completion' : ' completions') + ' on ' + active + (active === 1 ? ' day' : ' days') + ' this month' : 'Nothing logged this month';
+  const dd = document.getElementById('dayDetail');
+  if (!calDay) { dd.hidden = true; return; }
+  dd.hidden = false; dd.innerHTML = '';
+  const h = document.createElement('h3'); h.textContent = fmt(dayNum(calDay)); dd.appendChild(h);
+  shown.forEach(c => {
+    const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = (c.log || []).includes(calDay);
+    cb.onchange = () => { setDone(c, calDay, cb.checked); save(); render(); renderCal(); };
+    l.append(cb, c.name); dd.appendChild(l);
+  });
+}
+document.getElementById('prevM').onclick = () => { if (--calM < 0) { calM = 11; calY--; } renderCal(); };
+document.getElementById('nextM').onclick = () => { if (++calM > 11) { calM = 0; calY++; } renderCal(); };
+function setView(v) {
+  document.getElementById('viewList').hidden = v === 'cal'; document.getElementById('viewCal').hidden = v !== 'cal';
+  document.getElementById('tabList').classList.toggle('on', v !== 'cal'); document.getElementById('tabCal').classList.toggle('on', v === 'cal');
+  store.set(VIEW_KEY, v); if (v === 'cal') renderCal();
+}
+document.getElementById('tabList').onclick = () => setView('list');
+document.getElementById('tabCal').onclick = () => setView('cal');
+const _render = render; render = function () { _render(); if (!document.getElementById('viewCal').hidden) renderCal(); };
+setView(store.get(VIEW_KEY) === 'cal' ? 'cal' : 'list');
 
 render(); showSync(); pullNow();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); pullNow(); } });
