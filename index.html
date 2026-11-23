@@ -33,7 +33,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.small { padding: 5px 10px; font-size: 14px; }
 button.ghost { background: transparent; }
 .summary { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-.pill { padding: 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+.pill { padding: 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; border: 2px solid transparent; font-family: inherit; cursor: pointer; }
+.pill.on { border-color: var(--text); }
 .pill.red { background: var(--red); color: var(--red-text); }
 .pill.yellow { background: var(--yellow); color: var(--yellow-text); }
 .pill.green { background: var(--green); color: var(--green-text); }
@@ -270,18 +271,20 @@ function status(c) {
   return { due, left, state, text };
 }
 
+let stFilter = '';
 function render() {
-  const items = chores.map(c => ({ c, s: status(c) })).sort((a, b) => a.s.left - b.s.left || a.c.name.localeCompare(b.c.name));
+  const all = chores.map(c => ({ c, s: status(c) }));
+  const items = all.filter(i => !stFilter || i.s.state === stFilter).sort((a, b) => a.s.left - b.s.left || a.c.name.localeCompare(b.c.name));
   const counts = { red: 0, yellow: 0, green: 0 };
-  items.forEach(i => counts[i.s.state]++);
+  all.forEach(i => counts[i.s.state]++);
   const sum = document.getElementById('summary');
   sum.innerHTML = '';
   [['red', 'overdue'], ['yellow', 'due soon'], ['green', 'up to date']].forEach(([k, label]) => {
-    const p = document.createElement('span'); p.className = 'pill ' + k; p.textContent = counts[k] + ' ' + label; sum.appendChild(p);
+    const p = document.createElement('button'); p.className = 'pill ' + k + (stFilter === k ? ' on' : ''); p.textContent = counts[k] + ' ' + label; p.title = stFilter === k ? 'Show all chores' : 'Show only ' + label; p.setAttribute('aria-pressed', stFilter === k); p.onclick = () => { stFilter = stFilter === k ? '' : k; render(); }; sum.appendChild(p);
   });
   const ul = document.getElementById('list');
   ul.innerHTML = '';
-  if (!items.length) { ul.innerHTML = '<li class="empty">No chores yet. Add one to get started.</li>'; return; }
+  if (!items.length) { ul.innerHTML = '<li class="empty">' + (stFilter ? 'No chores in this group.' : 'No chores yet. Add one to get started.') + '</li>'; return; }
   items.forEach(({ c, s }) => {
     const li = document.createElement('li'); li.className = 'chore ' + s.state;
     const info = document.createElement('div');
