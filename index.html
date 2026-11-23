@@ -135,7 +135,7 @@ const store = {
 let pushTimer = null, syncMsg = '';
 function showSync() {
   document.getElementById('sync').textContent = store.get(SECRET_KEY)
-    ? (syncMsg || 'Linked to AnnoyMe: overdue chores will nudge you.')
+    ? (syncMsg || 'Linked to AnnoyMe: its chore tasks are added here and marked done when completed; overdue chores nudge you.')
     : 'Not linked to AnnoyMe. Open this page from the chore list link in the AnnoyMe app.';
 }
 async function rpc(name, body) {
@@ -144,7 +144,7 @@ async function rpc(name, body) {
   return r.json();
 }
 function cleanChores(r) {
-  return Array.isArray(r) ? r.filter(c => c && typeof c.name === 'string' && Number(c.every) >= 1).map(c => ({ id: String(c.id || uid()), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '' })) : null;
+  return Array.isArray(r) ? r.filter(c => c && typeof c.name === 'string' && Number(c.every) >= 1).map(c => ({ id: String(c.id || uid()), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '', ...(c.src ? { src: String(c.src) } : {}) })) : null;
 }
 async function pullNow() {
   const k = store.get(SECRET_KEY); if (!k) { showSync(); return; }
@@ -210,6 +210,7 @@ function render() {
     const n = document.createElement('div'); n.className = 'name'; n.textContent = c.name;
     const m = document.createElement('div'); m.className = 'meta';
     const st = document.createElement('span'); st.className = 'status'; st.textContent = s.text;
+    if (c.src) { const tag = document.createElement('span'); tag.textContent = 'From AnnoyMe · '; tag.style.fontStyle = 'italic'; m.append(tag); }
     m.append(st, ' · Last done: ' + (c.last ? fmt(dayNum(c.last)) : 'never') + ' · Next due: ' + fmt(s.due) + ' · Every ' + c.every + (c.every === 1 ? ' day' : ' days'));
     info.append(n, m);
     const act = document.createElement('div'); act.className = 'actions';
@@ -258,7 +259,7 @@ document.getElementById('importFile').onchange = e => {
   f.text().then(t => {
     const r = JSON.parse(t);
     if (!Array.isArray(r) || !r.every(c => c && typeof c.name === 'string' && Number(c.every) >= 1)) throw 0;
-    chores = r.map(c => ({ id: c.id || uid(), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '' }));
+    chores = r.map(c => ({ id: c.id || uid(), name: String(c.name).slice(0, 80), every: Math.round(Number(c.every)), last: /^\d{4}-\d{2}-\d{2}$/.test(c.last) ? c.last : '', ...(c.src ? { src: String(c.src) } : {}) }));
     save(); render();
   }).catch(() => alert('That file is not a valid chore backup.'));
   e.target.value = '';
